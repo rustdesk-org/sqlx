@@ -30,6 +30,7 @@ struct QuotedMigration {
     migration_type: QuotedMigrationType,
     path: String,
     checksum: Vec<u8>,
+    alternative_checksum: Vec<u8>,
 }
 
 impl ToTokens for QuotedMigration {
@@ -40,6 +41,7 @@ impl ToTokens for QuotedMigration {
             migration_type,
             path,
             checksum,
+            alternative_checksum,
         } = &self;
 
         let ts = quote! {
@@ -51,6 +53,9 @@ impl ToTokens for QuotedMigration {
                 sql: ::std::borrow::Cow::Borrowed(include_str!(#path)),
                 checksum: ::std::borrow::Cow::Borrowed(&[
                     #(#checksum),*
+                ]),
+                alternative_checksum: ::std::borrow::Cow::Borrowed(&[
+                    #(#alternative_checksum),*
                 ]),
             }
         };
@@ -105,6 +110,13 @@ pub(crate) fn expand_migrator(path: &Path) -> crate::Result<TokenStream> {
         let sql = fs::read_to_string(&entry.path())?;
 
         let checksum = Vec::from(Sha384::digest(sql.as_bytes()).as_slice());
+        let (line1, line2) = if sql.contains("\r\n") {
+            ("\r\n", "\n")
+        } else {
+            ("\n", "\r\n")
+        };
+        let alternative_checksum =
+            Vec::from(Sha384::digest(sql.replace(line1, line2).as_bytes()).as_slice());
 
         // canonicalize the path so we can pass it to `include_str!()`
         let path = entry.path().canonicalize()?;
@@ -124,6 +136,7 @@ pub(crate) fn expand_migrator(path: &Path) -> crate::Result<TokenStream> {
             migration_type: QuotedMigrationType(migration_type),
             path,
             checksum,
+            alternative_checksum,
         })
     }
 
